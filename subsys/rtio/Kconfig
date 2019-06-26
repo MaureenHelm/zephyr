@@ -1,0 +1,23 @@
+# Copyright (c) 2022 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig RTIO
+	bool "RTIO"
+
+if RTIO
+
+config RTIO_EXECUTOR_INPLACE
+	bool "An inplace executor for RTIO"
+	default y
+	help
+	  An inplace RTIO executor that will execute a queue of
+	  requested I/O operations in the immediate callers context
+	  as if they had written it themselves. No additional threads
+	  or hardware are required.
+
+module = RTIO
+module-str = RTIO
+module-help = Sets log level for RTIO support
+source "subsys/logging/Kconfig.template.log_config"
+
+endif

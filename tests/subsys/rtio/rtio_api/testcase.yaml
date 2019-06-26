@@ -1,0 +1,5 @@
+tests:
+  subsys.rtio.api:
+    tags: rtio
+    extra_configs:
+      - CONFIG_TIMESLICING=y
