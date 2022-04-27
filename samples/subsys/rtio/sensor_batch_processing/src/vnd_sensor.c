@@ -22,6 +22,7 @@ struct vnd_sensor_msg {
 
 struct vnd_sensor_config {
 	uint32_t sample_period;
+	size_t sample_size;
 	struct vnd_sensor_msg *msgs;
 	size_t max_msgs;
 };
@@ -31,12 +32,31 @@ struct vnd_sensor_data {
 	struct k_timer timer;
 	const struct device *dev;
 	struct k_msgq msgq;
+	uint32_t sample_number;
 };
 
 static int vnd_sensor_iodev_read(const struct device *dev, uint8_t *buf,
 		uint32_t buf_len)
 {
+	const struct vnd_sensor_config *config = dev->config;
+	struct vnd_sensor_data *data = dev->data;
+	uint32_t sample_number;
+	uint32_t key;
+
 	LOG_DBG("%s: buf_len = %d, buf = %p", dev->name, buf_len, buf);
+
+	key = irq_lock();
+	sample_number = data->sample_number++;
+	irq_unlock(key);
+
+	if (buf_len < config->sample_size) {
+		LOG_ERR("%s: Buffer is too small", dev->name);
+		return -ENOMEM;
+	}
+
+	for (int i = 0; i < MIN(config->sample_size, buf_len); i++) {
+		buf[i] = sample_number * config->sample_size + i;
+	}
 
 	return 0;
 }
@@ -133,6 +153,7 @@ static const struct rtio_iodev_api vnd_sensor_iodev_api = {
 									\
 	static const struct vnd_sensor_config vnd_sensor_config_##n = {	\
 		.sample_period = DT_INST_PROP(n, sample_period),	\
+		.sample_size = DT_INST_PROP(n, sample_size),		\
 		.msgs = vnd_sensor_msgs_##n,				\
 		.max_msgs = DT_INST_PROP(n, max_msgs),			\
 	};								\

@@ -11,7 +11,6 @@
 
 LOG_MODULE_REGISTER(main);
 
-#define BUF_SZ		(16)
 #define N		(8)
 #define M		(N/2)
 #define SQ_SZ		(N)
@@ -19,12 +18,13 @@ LOG_MODULE_REGISTER(main);
 
 #define NODE_ID		DT_INST(0, vnd_sensor)
 #define SAMPLE_PERIOD	DT_PROP(NODE_ID, sample_period)
+#define SAMPLE_SIZE	DT_PROP(NODE_ID, sample_size)
 #define PROCESS_TIME	((M - 1) * SAMPLE_PERIOD)
 
 RTIO_EXECUTOR_INPLACE_DEFINE(inplace_exec);
 RTIO_DEFINE(ez_io, inplace_exec, SQ_SZ, CQ_SZ);
 
-static uint8_t bufs[N][BUF_SZ];
+static uint8_t bufs[N][SAMPLE_SIZE];
 
 void main(void)
 {
@@ -35,8 +35,8 @@ void main(void)
 	for (int n = 0; n < N; n++) {
 		struct rtio_sqe *sqe = rtio_spsc_acquire(ez_io.sq);
 
-		rtio_sqe_prep_read(sqe, iodev, RTIO_PRIO_HIGH, bufs[n], BUF_SZ,
-				   bufs[n]);
+		rtio_sqe_prep_read(sqe, iodev, RTIO_PRIO_HIGH, bufs[n],
+				   SAMPLE_SIZE, bufs[n]);
 		rtio_spsc_produce(ez_io.sq);
 	}
 
@@ -77,6 +77,9 @@ void main(void)
 		 * queue than we needed for the batch processing algorithm.
 		 */
 		LOG_INF("Start processing %d samples", M);
+		for (m = 0; m < M; m++) {
+			LOG_HEXDUMP_DBG(userdata[m], SAMPLE_SIZE, "Sample data:");
+		}
 		k_msleep(PROCESS_TIME);
 		LOG_INF("Finished processing %d samples", M);
 
@@ -87,7 +90,8 @@ void main(void)
 			struct rtio_sqe *sqe = rtio_spsc_acquire(ez_io.sq);
 
 			rtio_sqe_prep_read(sqe, iodev, RTIO_PRIO_HIGH,
-					   userdata[m], BUF_SZ, userdata[m]);
+					   userdata[m], SAMPLE_SIZE,
+					   userdata[m]);
 			rtio_spsc_produce(ez_io.sq);
 		}
 	}

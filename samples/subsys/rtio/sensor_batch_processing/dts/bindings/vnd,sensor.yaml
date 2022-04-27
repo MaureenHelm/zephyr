@@ -13,6 +13,10 @@ properties:
     type: int
     required: true
 
+  sample-size:
+    type: int
+    required: true
+
   max-msgs:
     type: int
     required: true

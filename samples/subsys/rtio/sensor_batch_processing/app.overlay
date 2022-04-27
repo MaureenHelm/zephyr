@@ -14,6 +14,7 @@
 			reg = <0>;
 			label = "SENSOR_0";
 			sample-period = <100>;
+			sample-size = <16>;
 			max-msgs = <8>;
 			status = "okay";
 		};
@@ -23,6 +24,7 @@
 			reg = <1>;
 			label = "SENSOR_1";
 			sample-period = <120>;
+			sample-size = <16>;
 			max-msgs = <4>;
 			status = "disabled";
 		};
