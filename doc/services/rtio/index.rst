@@ -77,7 +77,7 @@ register address to then read from. So the sequence of operations might be...
    6. Disable Chip Select
 
 If anything in this chain of operations fails give up. Some of those operations
-can be embodied in a device abstraction that understand a read or write
+can be embodied in a device abstraction that understands a read or write
 implicitly means setup the clock and chip select. The transactional nature of
 the request also needs to be embodied in some manner. Of the operations above
 perhaps the read could be done using DMA as its large enough make sense. That
@@ -118,7 +118,11 @@ based decision making.
 
 * Polling, Interrupt, or DMA transfer?
 * If DMA, are the requirements met (peripheral supported by DMAC, etc).
-* Block/Non-Blocking
+
+The executor is meant to provide policy for when to use each transfer
+type, and provide the common code for walking through submission queue
+chains by providing calls the iodev may use to signal completion,
+error, or a need to suspend and wait.
 
 Outstanding Questions
 *********************
@@ -231,23 +235,26 @@ The transaction on i2c is implicit for each operation chain.
 	int do_some_io(void)
 	{
 		struct rtio_sqe *write_sqe = rtio_spsc_acquire(ez_io.sq);
+		struct rtio_sqe *read_sqe = rtio_spsc_acquire(ez_io.sq);
+
 		rtio_sqe_prep_write(write_sqe, i2c_dev, RTIO_PRIO_LOW, &reg_addr, 2);
 		write_sqe->flags = RTIO_SQE_CHAINED; /* the next item in the queue will wait on this one */
-		rtio_spsc_produce(ez_io.sq);
 
-		struct rtio_sqe *read_sqe = rtio_spsc_acquire(ez_io.sq);
 		rtio_sqe_prep_read(read_sqe, i2c_dev, RTIO_PRIO_LOW, buf, 32);
-		rtio_spsc_produce(ez_io.sq);
 
 		rtio_submit(rtio_inplace_executor, &ez_io, 2);
+
 		struct rtio_cqe *read_cqe = rtio_spsc_consume(ez_io.cq);
 		struct rtio_cqe *write_cqe = rtio_spsc_consume(ez_io.cq);
+
 		if(read_cqe->result < 0) {
 			LOG_ERR("read failed!");
 		}
+
 		if(write_cqe->result < 0) {
 			LOG_ERR("write failed!");
 		}
+
 		rtio_spsc_release(ez_io.cq);
 		rtio_spsc_release(ez_io.cq);
 	}
@@ -276,12 +283,10 @@ simplified version of that potential operation chain.
 		struct rtio_sqe *read_sqe = rtio_spsc_acquire(ez_io.sq);
 		rtio_sqe_prep_read(read_sqe, i2c_dev, RTIO_PRIO_LOW, buf, 32);
 		read_sqe->flags = RTIO_SQE_CHAINED; /* the next item in the queue will wait on this one */
-		rtio_spsc_produce(ez_io.sq);
 
 		/* Safe to do as the chained operation *ensures* that if one fails all subsequent ops fail */
 		struct rtio_sqe *write_sqe = rtio_spsc_acquire(ez_io.sq);
 		rtio_sqe_prep_write(write_sqe, spi_dev, RTIO_PRIO_LOW, buf, 32);
-		rtio_spsc_produce(ez_io.sq);
 
 		/* call will return immediately without blocking if possible */
 		rtio_submit(rtio_inplace_executor, &ez_io, 0);
@@ -365,7 +370,6 @@ video.
 			struct rtio_sqe *read_sqe = rtio_spsc_acquire(ez_io.sq);
 
 			rtio_sqe_prep_read(read_sqe, sensor_dev, RTIO_PRIO_HIGH, bufs[i], ICM42688_RTIO_BUF_SIZE);
-			rtio_spsc_produce(ez_io.sq);
 		}
 		struct device *sensor = DEVICE_DT_GET(DT_NODE(super6axis));
 		struct sensor_reader reader;
@@ -410,7 +414,6 @@ video.
 			/* resubmit a read request with the newly freed buffer to the sensor */
 			struct rtio_sqe *read_sqe = rtio_spsc_acquire(ez_io.sq);
 			rtio_sqe_prep_read(read_sqe, sensor_dev, RTIO_PRIO_HIGH, buf, ICM20649_RTIO_BUF_SIZE);
-			rtio_spsc_produce(ez_io.sq);
 		}
 	}
 

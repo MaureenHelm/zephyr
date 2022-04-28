@@ -13,7 +13,7 @@
 #include <zephyr/sys/atomic.h>
 
 /**
- * @brief RTIO SPSC API
+ * @brief RTIO Single Producer Single Consumer (SPSC) Queue API
  * @defgroup rtio_spsc RTIO SPSC API
  * @ingroup rtio
  * @{
@@ -22,34 +22,36 @@
 /**
  * @file rtio_spsc.h
  *
- * @brief A lock-free and type safe power of 2 fixed sized SPSC Queue using a
- * ringbuffer and atomics to ensure coherency.
+ * @brief A lock-free and type safe power of 2 fixed sized single producer
+ * single consumer (SPSC) queue using a ringbuffer and atomics to ensure
+ * coherency.
  *
- * This SPSC implementation works on an array which wraps using a power of two
- * size and uses a bit mask to perform a modulus. Atomics are used to allow
+ * This SPSC queue implementation works on an array which wraps using a power of
+ * two size and uses a bit mask to perform a modulus. Atomics are used to allow
  * single-producer single-consumer safe semantics without locks. Elements are
  * expected to be of a fixed size. The API is type safe as the underlying buffer
  * is typed and all usage is done through macros.
  *
- * A spsc may be declared on a stack or statically and work as intended so long
- * as its lifetime outlives any usage. Static declarations should be the
- * preferred method. It is meant to be a shared object between two execution
- * contexts (ISR and a thread for example)
+ * An SPSC queue may be declared on a stack or statically and work as intended so
+ * long as its lifetime outlives any usage. Static declarations should be the
+ * preferred method as stack . It is meant to be a shared object between two
+ * execution contexts (ISR and a thread for example)
  *
- * The SPSC is safe to produce or consume in an ISR with O(1) push/pull.
+ * An SPSC queue is safe to produce or consume in an ISR with O(1) push/pull.
  *
- * The SPSC is *not* safe to produce in multiple execution contexts or consume in
- * multiple execution contexts without additional work.
+ * @warning SPSC is *not* safe to produce or consume in multiple execution
+ * contexts.
  *
  * Safe usage would be, where A and B are unique execution contexts:
  * 1. ISR A producing and a Thread B consuming.
  * 2. Thread A producing and ISR B consuming.
  * 3. Thread A producing and Thread B consuming.
+ * 4. ISR A producing and ISR B consuming.
  */
 
 /**
  * @private
- * @brief Common spsc attributes
+ * @brief Common SPSC attributes
  *
  * @warning Not to be manipulated without the macros!
  */
@@ -71,7 +73,11 @@ struct rtio_spsc {
 };
 
 /**
- * @brief Statically initialize a rtio_spsc
+ * @brief Statically initialize an rtio_spsc
+ *
+ * @param name Name of the spsc symbol to be provided
+ * @param type Type stored in the spsc
+ * @param sz Size of the spsc, must be power of 2 (ex: 2, 4, 8)
  */
 #define RTIO_SPSC_INITIALIZER(name, type, sz)	  \
 	{ ._spsc = {				  \
@@ -84,27 +90,31 @@ struct rtio_spsc {
 	}
 
 /**
- * @brief Declare an anonymous struct type for a rtio_spsc
+ * @brief Declare an anonymous struct type for an rtio_spsc
+ *
+ * @param name Name of the spsc symbol to be provided
+ * @param type Type stored in the spsc
+ * @param sz Size of the spsc, must be power of 2 (ex: 2, 4, 8)
  */
 #define RTIO_SPSC_DECLARE(name, type, sz) \
 	struct rtio_spsc_ ## name {	  \
 		struct rtio_spsc _spsc;	  \
 		type buffer[sz];	  \
-	} _ ## name
+	}
 
 /**
- * @brief Define a rtio_spsc with a fixed size
+ * @brief Define an rtio_spsc with a fixed size
  *
- * @param name Name of the spsc
+ * @param name Name of the spsc symbol to be provided
  * @param type Type stored in the spsc
  * @param sz Size of the spsc, must be power of 2 (ex: 2, 4, 8)
  */
 #define RTIO_SPSC_DEFINE(name, type, sz)                                            \
-	RTIO_SPSC_DECLARE(name, type, sz) = RTIO_SPSC_INITIALIZER(name, type, sz);  \
-	struct rtio_spsc_##name * const name = &_##name
+	RTIO_SPSC_DECLARE(name, type, sz) name = \
+		RTIO_SPSC_INITIALIZER(name, type, sz);
 
 /**
- * @brief Size of the spsc
+ * @brief Size of the SPSC queue
  *
  * @param spsc SPSC reference
  */
@@ -169,9 +179,40 @@ struct rtio_spsc {
 	})
 
 /**
- * @brief Consume a element from the spsc
+ * @brief Produce all previously acquired elements to the SPSC
+ *
+ * This makes all previous acquired elements available to the consumer
+ * immediately
+ *
+ * @param spsc SPSC to produce all previously acquired elements or do nothing
+ */
+#define rtio_spsc_produce_all(spsc)                                     \
+	({                                                              \
+		if ((spsc)->_spsc.acquire > 0) {                        \
+			unsigned long acquired = (spsc)->_spsc.acquire; \
+			(spsc)->_spsc.acquire = 0;                       \
+			atomic_add(&(spsc)->_spsc.in, acquired);        \
+		}                                                       \
+	})
+
+/**
+ * @brief Peek at an element from the spsc
  *
  * @param spsc Spsc to peek into
+ *
+ * @return Pointer to element or null if no consumable elements left
+ */
+#define rtio_spsc_peek(spsc)                                                                       \
+	({                                                                                         \
+		uint32_t idx = (uint32_t)atomic_get(&(spsc)->_spsc.out) + (spsc)->_spsc.consume;   \
+		bool has_consumable = (idx != (uint32_t)atomic_get(&(spsc)->_spsc.in));            \
+		has_consumable ? &((spsc)->buffer[z_rtio_spsc_mask(spsc, idx)]) : NULL;            \
+	})
+
+/**
+ * @brief Consume an element from the spsc
+ *
+ * @param spsc Spsc to consume from
  *
  * @return Pointer to element or null if no consumable elements left
  */

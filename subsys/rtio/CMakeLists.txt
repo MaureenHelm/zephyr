@@ -7,8 +7,8 @@ if(CONFIG_RTIO)
 	zephyr_include_directories(${ZEPHYR_BASE}/subsys/rtio)
 
 	zephyr_library_sources_ifdef(
-		CONFIG_RTIO_EXECUTOR_INPLACE
-		rtio_executor_inplace.c
+		CONFIG_RTIO_EXECUTOR_SIMPLE
+		rtio_executor_simple.c
 	)
 
 endif()
