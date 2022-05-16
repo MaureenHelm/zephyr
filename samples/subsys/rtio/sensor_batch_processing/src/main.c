@@ -6,7 +6,7 @@
 
 #include <zephyr.h>
 #include <zephyr/rtio/rtio.h>
-#include <zephyr/rtio/rtio_executor_inplace.h>
+#include <zephyr/rtio/rtio_executor_simple.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(main);
@@ -21,8 +21,8 @@ LOG_MODULE_REGISTER(main);
 #define SAMPLE_SIZE	DT_PROP(NODE_ID, sample_size)
 #define PROCESS_TIME	((M - 1) * SAMPLE_PERIOD)
 
-RTIO_EXECUTOR_INPLACE_DEFINE(inplace_exec);
-RTIO_DEFINE(ez_io, inplace_exec, SQ_SZ, CQ_SZ);
+RTIO_EXECUTOR_SIMPLE_DEFINE(simple_exec);
+RTIO_DEFINE(ez_io, (struct rtio_executor *)&simple_exec, SQ_SZ, CQ_SZ);
 
 static uint8_t bufs[N][SAMPLE_SIZE];
 

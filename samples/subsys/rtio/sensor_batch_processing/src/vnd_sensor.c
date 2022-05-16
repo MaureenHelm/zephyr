@@ -8,7 +8,6 @@
 
 #include <zephyr/zephyr.h>
 #include <zephyr/rtio/rtio.h>
-#include <zephyr/rtio/rtio_spsc.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
@@ -17,7 +16,6 @@ LOG_MODULE_REGISTER(vnd_sensor);
 struct vnd_sensor_msg {
 	struct rtio_sqe sqe;
 	struct rtio *r;
-	uint32_t flags;
 };
 
 struct vnd_sensor_config {
@@ -62,33 +60,27 @@ static int vnd_sensor_iodev_read(const struct device *dev, uint8_t *buf,
 }
 
 static void vnd_sensor_iodev_execute(const struct device *dev,
-		const struct rtio_sqe *sqe, struct rtio *r, uint32_t flags)
+		const struct rtio_sqe *sqe, struct rtio *r)
 {
-	struct rtio_cqe *cqe = rtio_spsc_acquire(r->cq);
-
-	if (cqe == NULL) {
-		LOG_ERR("%s: Could not get a cqe", dev->name);
-		atomic_add(&r->xcqcnt, (atomic_val_t)1);
-		goto out;
-	}
+	int result;
 
 	if (sqe->op == RTIO_OP_RX) {
-		cqe->result = vnd_sensor_iodev_read(dev, sqe->buf, sqe->buf_len);
-		cqe->userdata = sqe->userdata;
+		result = vnd_sensor_iodev_read(dev, sqe->buf, sqe->buf_len);
 	} else {
 		LOG_ERR("%s: Invalid op", dev->name);
-		cqe->result = -EINVAL;
-		cqe->userdata = sqe->userdata;
+		result = -EINVAL;
 	}
 
-	rtio_spsc_produce(r->cq);
+	if (result < 0) {
+		rtio_sqe_err(r, sqe, result);
+	} else {
+		rtio_sqe_ok(r, sqe, result);
+	}
 
-out:
 	return;
 }
 
-static void vnd_sensor_iodev_submit(const struct rtio_sqe *sqe, struct rtio *r,
-		uint32_t flags)
+static void vnd_sensor_iodev_submit(const struct rtio_sqe *sqe, struct rtio *r)
 {
 	struct vnd_sensor_data *data = (struct vnd_sensor_data *) sqe->iodev;
 	const struct device *dev = data->dev;
@@ -96,11 +88,11 @@ static void vnd_sensor_iodev_submit(const struct rtio_sqe *sqe, struct rtio *r,
 	struct vnd_sensor_msg msg = {
 		.sqe = *sqe,
 		.r = r,
-		.flags = flags,
 	};
 
 	if (k_msgq_put(&data->msgq, &msg, K_NO_WAIT) != 0) {
 		LOG_ERR("%s: Could not put a msg", dev->name);
+		rtio_sqe_err(r, sqe, -EWOULDBLOCK);
 	}
 }
 
@@ -112,7 +104,7 @@ static void vnd_sensor_handle_int(const struct device *dev)
 	if (k_msgq_get(&data->msgq, &msg, K_NO_WAIT) != 0) {
 		LOG_ERR("%s: Could not get a msg", dev->name);
 	} else {
-		vnd_sensor_iodev_execute(dev, &msg.sqe, msg.r, msg.flags);
+		vnd_sensor_iodev_execute(dev, &msg.sqe, msg.r);
 	}
 }
 
